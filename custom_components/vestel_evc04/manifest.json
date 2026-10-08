@@ -1,11 +1,14 @@
 {
   "domain": "vestel_evc04",
   "name": "Vestel EVC04 Wallbox",
-  "codeowners": ["@fumagallis4ever"],
+  "codeowners": [
+    "@fumagallis4ever"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/fumagallis4ever/vestel-evc04",
   "integration_type": "device",
   "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/fumagallis4ever/vestel-evc04/issues",
   "requirements": [],
   "version": "0.1.0"
 }
