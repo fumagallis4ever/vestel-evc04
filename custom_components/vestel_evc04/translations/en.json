@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Vestel EVC04 Wallbox",
+        "description": "Modbus TCP connection to the wallbox. Modbus TCP must be enabled in the wallbox web interface.",
+        "data": {
+          "host": "IP address",
+          "port": "Port",
+          "unit_id": "Modbus unit ID",
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the wallbox. Check IP address, port and unit ID."
+    },
+    "abort": {
+      "already_configured": "This wallbox is already configured."
+    }
+  }
+}
