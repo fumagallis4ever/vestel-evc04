@@ -179,6 +179,7 @@ class VestelCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         text: str,
         details: dict[str, Any] | None = None,
         zeit: datetime | None = None,
+        notify: bool = True,
     ) -> None:
         """Eintrag hinzufügen, HA-Event feuern und speichern."""
         entry = {
@@ -195,11 +196,13 @@ class VestelCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.log.clear()
             self.log.extend(ordered)
         _LOGGER.info("[%s] %s %s", typ, text, details or "")
+        self._store.async_delay_save(self._store_data, 5)
+        if not notify:  # Sammelimport: kein Event, keine Zustandsänderung je Eintrag
+            return
         self.hass.bus.async_fire(
             EVENT_NAME,
             {"entry_id": self.config_entry.entry_id, **entry},
         )
-        self._store.async_delay_save(self._store_data, 5)
         self.async_update_listeners()
 
     @callback

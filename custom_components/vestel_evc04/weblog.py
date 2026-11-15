@@ -109,45 +109,44 @@ class VestelWebLog:
             self.coordinator.async_update_listeners()
 
     def _handle_events(self, events: list) -> None:
+        """Neue Kartennutzungen übernehmen.
+
+        Beim ersten Abruf (Altbestand aus den Logs) wird gesammelt importiert:
+        keine Events, kein Zustandswechsel je Eintrag, nur der neueste zählt.
+        """
         coord = self.coordinator
         first_run = not coord.web_seen
-        for ev in events:
-            if ev.key in coord.web_seen:
-                continue
+        new = [ev for ev in events if ev.key not in coord.web_seen]
+        for ev in new:
             coord.web_seen.append(ev.key)
             ergebnis = RFID_RESULT.get(ev.ergebnis, ev.ergebnis)
-            label = coord.card_label(ev.uid)
-            if not ev.abgelaufen:
-                newer = (
-                    coord.rfid_last is None
-                    or (coord.rfid_last.get("erkannt_um") or "")
-                    <= dt_util.as_local(ev.zeit).isoformat(timespec="seconds")
-                )
-                if newer:
-                    coord.rfid_last = {
-                        "uid": ev.uid,
-                        "name": coord.card_names.get(ev.uid),
-                        "ergebnis": ergebnis,
-                        "quelle": "weboberflaeche",
-                        "rohdaten_hex": None,
-                        "erkannt_um": dt_util.as_local(ev.zeit).isoformat(
-                            timespec="seconds"
-                        ),
-                    }
-                text = f"RFID-Karte {label}: {ergebnis}"
-            else:
-                text = f"RFID-Karte {label}: {ergebnis}"
             coord.add_log(
                 "rfid",
-                text,
+                f"RFID-Karte {coord.card_label(ev.uid)}: {ergebnis}",
                 {"uid": ev.uid, "ergebnis": ev.ergebnis, "quelle": "weboberflaeche"},
                 zeit=ev.zeit,
+                notify=not first_run,
             )
-        if first_run and events:
-            _LOGGER.info("%s Kartennutzungen aus den Geräte-Logs übernommen", len(events))
+        latest = next((ev for ev in reversed(new) if not ev.abgelaufen), None)
+        if latest is None:
+            return
+        zeit = dt_util.as_local(latest.zeit).isoformat(timespec="seconds")
+        if coord.rfid_last and (coord.rfid_last.get("erkannt_um") or "") > zeit:
+            return
+        coord.rfid_last = {
+            "uid": latest.uid,
+            "name": coord.card_names.get(latest.uid),
+            "ergebnis": RFID_RESULT.get(latest.ergebnis, latest.ergebnis),
+            "quelle": "weboberflaeche",
+            "rohdaten_hex": None,
+            "erkannt_um": zeit,
+        }
+        if first_run:
+            _LOGGER.info("%s Kartennutzungen aus den Geräte-Logs übernommen", len(new))
 
     def _handle_sessions(self, rows: list[dict[str, Any]]) -> None:
         coord = self.coordinator
+        first_sessions = not any(k.startswith("session|") for k in coord.web_seen)
         sessions: list[dict[str, Any]] = []
         for row in rows:
             try:
@@ -181,5 +180,6 @@ class VestelWebLog:
                     {"karte": uid, "energie_kwh": item["energie_kwh"],
                      "start": item["start"], "quelle": "weboberflaeche"},
                     zeit=stop,
+                    notify=not first_sessions,
                 )
         coord.sessions = sessions
