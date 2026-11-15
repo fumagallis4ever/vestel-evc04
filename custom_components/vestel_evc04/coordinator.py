@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections import deque
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
+import re
 import time
 from typing import Any
 
@@ -27,8 +28,10 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     EQUIPMENT_STATE,
+    CONF_CARD_NAMES,
     EVENT_NAME,
     LOG_MAX_ENTRIES,
+    WEB_SEEN_MAX,
     REG_RFID,
     REG_RFID_COUNT,
     STORAGE_VERSION,
@@ -63,6 +66,17 @@ def _decode_text(regs: list[int]) -> str:
     return "".join(c for c in text if c.isprintable()).strip()
 
 
+def parse_card_names(text: str) -> dict[str, str]:
+    """'FCF70F46=Michael, DCA1461E=Bea' (Komma oder Zeilen) -> dict."""
+    names: dict[str, str] = {}
+    for part in re.split(r"[,;\n]", text or ""):
+        if "=" in part:
+            uid, name = part.split("=", 1)
+            if uid.strip() and name.strip():
+                names[uid.strip().upper()] = name.strip()
+    return names
+
+
 def _scale(value: int | None, factor: float, digits: int = 3) -> float | None:
     return None if value is None else round(value * factor, digits)
 
@@ -95,7 +109,12 @@ class VestelCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Ereignisprotokoll (neueste zuerst), wird über Neustarts gespeichert
         self.log: deque[dict[str, Any]] = deque(maxlen=LOG_MAX_ENTRIES)
-        self._store: Store[list[dict[str, Any]]] = Store(
+        self.web_seen: deque[str] = deque(maxlen=WEB_SEEN_MAX)
+        self.web_status: dict[str, Any] = {"aktiv": False}
+        self.sessions: list[dict[str, Any]] = []
+        self.weblog: Any = None
+        self.card_names = parse_card_names(entry.options.get(CONF_CARD_NAMES, ""))
+        self._store: Store[Any] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.protokoll"
         )
         self._prev: dict[str, Any] = {}
@@ -117,48 +136,77 @@ class VestelCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ------------------------------------------------------------------
     # Protokoll
     # ------------------------------------------------------------------
+    def _store_data(self) -> dict[str, Any]:
+        return {"log": list(self.log), "web_seen": list(self.web_seen)}
+
     async def async_load_log(self) -> None:
         """Gespeichertes Protokoll laden."""
         stored = await self._store.async_load()
-        if stored:
-            self.log.extend(stored[:LOG_MAX_ENTRIES])
-            for entry in stored:
-                if entry.get("typ") == "rfid" and self.rfid_last is None:
-                    self.rfid_last = {
-                        "uid": entry.get("details", {}).get("uid"),
-                        "rohdaten_hex": entry.get("details", {}).get("rohdaten_hex"),
-                        "erkannt_um": entry.get("zeit"),
-                    }
+        if isinstance(stored, list):  # Format bis 0.2.x
+            stored = {"log": stored}
+        if not stored:
+            return
+        self.log.extend(stored.get("log", [])[:LOG_MAX_ENTRIES])
+        self.web_seen.extend(stored.get("web_seen", []))
+        for entry in self.log:
+            if entry.get("typ") == "rfid" and entry.get("details", {}).get("uid"):
+                det = entry["details"]
+                self.rfid_last = {
+                    "uid": det.get("uid"),
+                    "name": self.card_names.get(det.get("uid", "")),
+                    "ergebnis": det.get("ergebnis"),
+                    "quelle": det.get("quelle", "modbus"),
+                    "rohdaten_hex": det.get("rohdaten_hex"),
+                    "erkannt_um": entry.get("zeit"),
+                }
+                break
 
     async def async_save_log(self) -> None:
         """Protokoll sofort speichern."""
-        await self._store.async_save(list(self.log))
+        await self._store.async_save(self._store_data())
+
+    def card_label(self, uid: str | None) -> str:
+        """Kartenname mit ID, falls hinterlegt."""
+        if not uid:
+            return "–"
+        name = self.card_names.get(uid.upper())
+        return f"{name} ({uid})" if name else uid
 
     @callback
     def add_log(
-        self, typ: str, text: str, details: dict[str, Any] | None = None
+        self,
+        typ: str,
+        text: str,
+        details: dict[str, Any] | None = None,
+        zeit: datetime | None = None,
     ) -> None:
         """Eintrag hinzufügen, HA-Event feuern und speichern."""
         entry = {
-            "zeit": dt_util.now().isoformat(timespec="seconds"),
+            "zeit": dt_util.as_local(zeit or dt_util.now()).isoformat(
+                timespec="seconds"
+            ),
             "typ": typ,
             "text": text,
             "details": details or {},
         }
         self.log.appendleft(entry)
+        if zeit is not None:  # nachträglich gemeldet -> zeitlich einsortieren
+            ordered = sorted(self.log, key=lambda e: e["zeit"], reverse=True)
+            self.log.clear()
+            self.log.extend(ordered)
         _LOGGER.info("[%s] %s %s", typ, text, details or "")
         self.hass.bus.async_fire(
             EVENT_NAME,
             {"entry_id": self.config_entry.entry_id, **entry},
         )
-        self._store.async_delay_save(lambda: list(self.log), 5)
+        self._store.async_delay_save(self._store_data, 5)
         self.async_update_listeners()
 
     @callback
     def clear_log(self) -> None:
         """Protokoll leeren."""
         self.log.clear()
-        self._store.async_delay_save(lambda: list(self.log), 1)
+        self._store.async_delay_save(self._store_data, 1)
         self.add_log("system", "Protokoll geleert")
 
     def _track(self, key: str, value: Any, label: str, typ: str = "status") -> None:
@@ -249,13 +297,21 @@ class VestelCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if not already_known:
                     self.rfid_last = {
                         "uid": uid,
+                        "name": self.card_names.get(uid.upper()),
+                        "ergebnis": "Ladevorgang",
+                        "quelle": "modbus",
                         "rohdaten_hex": raw_hex,
                         "erkannt_um": dt_util.now().isoformat(timespec="seconds"),
                     }
                     self.add_log(
                         "rfid",
-                        f"RFID-Karte erkannt: {uid}",
-                        {"uid": uid, "rohdaten_hex": raw_hex, "register": REG_RFID},
+                        f"RFID-Karte im Ladevorgang: {self.card_label(uid)}",
+                        {
+                            "uid": uid,
+                            "quelle": "modbus",
+                            "rohdaten_hex": raw_hex,
+                            "register": REG_RFID,
+                        },
                     )
             elif not first and old and not uid:
                 self.add_log("rfid", "RFID-Register geleert", {"rohdaten_hex": raw_hex})

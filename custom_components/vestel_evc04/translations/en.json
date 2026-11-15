@@ -18,5 +18,24 @@
     "abort": {
       "already_configured": "This wallbox is already configured."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Wallbox web interface",
+        "description": "Via the web interface the integration reads every RFID card use (even without a charging session) and the list of charging sessions. Device logs are downloaded at the configured interval. Interval 0 disables this.",
+        "data": {
+          "web_host": "Wallbox IP address (not the evcc proxy)",
+          "web_benutzer": "Username",
+          "web_passwort": "Password (leave empty = unchanged)",
+          "web_intervall": "Polling interval in minutes (0 = off)",
+          "kartennamen": "Card names, e.g. FCF70F46=Michael, DCA1461E=Bea"
+        }
+      }
+    },
+    "error": {
+      "web_auth": "Login failed. Check username and password.",
+      "web_connect": "Web interface not reachable. Check the IP address."
+    }
   }
 }

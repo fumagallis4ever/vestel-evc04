@@ -18,5 +18,24 @@
     "abort": {
       "already_configured": "Diese Wallbox ist bereits eingerichtet."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Weboberfläche der Wallbox",
+        "description": "Über die Weboberfläche liest die Integration jede RFID-Kartennutzung (auch ohne Ladevorgang) und die Liste der Ladevorgänge. Die Geräte-Logs werden dafür im eingestellten Intervall heruntergeladen. Intervall 0 schaltet das ab.",
+        "data": {
+          "web_host": "IP-Adresse der Wallbox (nicht des evcc-Proxys)",
+          "web_benutzer": "Benutzername",
+          "web_passwort": "Passwort (leer lassen = unverändert)",
+          "web_intervall": "Abrufintervall in Minuten (0 = aus)",
+          "kartennamen": "Kartennamen, z. B. FCF70F46=Michael, DCA1461E=Bea"
+        }
+      }
+    },
+    "error": {
+      "web_auth": "Anmeldung fehlgeschlagen. Benutzername und Passwort prüfen.",
+      "web_connect": "Weboberfläche nicht erreichbar. IP-Adresse prüfen."
+    }
   }
 }

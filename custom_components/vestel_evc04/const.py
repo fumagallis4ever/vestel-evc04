@@ -48,3 +48,22 @@ EVENT_NAME = f"{DOMAIN}_ereignis"
 LOG_MAX_ENTRIES = 200
 LOG_ATTR_ENTRIES = 50
 STORAGE_VERSION = 1
+
+# Weboberfläche (Optionen)
+CONF_WEB_HOST = "web_host"
+CONF_WEB_USER = "web_benutzer"
+CONF_WEB_PASSWORD = "web_passwort"
+CONF_WEB_INTERVAL = "web_intervall"
+CONF_CARD_NAMES = "kartennamen"
+DEFAULT_WEB_USER = "admin"
+DEFAULT_WEB_INTERVAL = 5  # Minuten, 0 = aus
+WEB_SEEN_MAX = 1000
+
+RFID_RESULT = {
+    "Accepted": "angenommen",
+    "Invalid": "abgelehnt (unbekannte Karte)",
+    "Blocked": "abgelehnt (gesperrt)",
+    "Expired": "abgelehnt (abgelaufen)",
+    "ConcurrentTx": "abgelehnt (bereits in Verwendung)",
+    "Timeout": "Freigabe abgelaufen (kein Fahrzeug angesteckt)",
+}

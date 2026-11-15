@@ -4,18 +4,35 @@ from __future__ import annotations
 
 from typing import Any
 
+import aiohttp
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import callback
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_SCAN_INTERVAL
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
 )
 
 from .const import (
+    CONF_CARD_NAMES,
     CONF_UNIT_ID,
+    CONF_WEB_HOST,
+    CONF_WEB_INTERVAL,
+    CONF_WEB_PASSWORD,
+    CONF_WEB_USER,
+    DEFAULT_WEB_INTERVAL,
+    DEFAULT_WEB_USER,
     DEFAULT_HOST,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
@@ -23,6 +40,7 @@ from .const import (
     DOMAIN,
 )
 from .modbus import VestelError, VestelModbusClient
+from .web import VestelWebAuthError, VestelWebClient, VestelWebError
 
 def _box(minimum: int, maximum: int) -> NumberSelector:
     """Zahlenfeld statt Schieberegler."""
@@ -51,6 +69,11 @@ class VestelConfigFlow(ConfigFlow, domain=DOMAIN):
     """Einrichtung über die Oberfläche."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> VestelOptionsFlow:
+        return VestelOptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -87,3 +110,60 @@ class VestelConfigFlow(ConfigFlow, domain=DOMAIN):
             else SCHEMA,
             errors=errors,
         )
+
+
+class VestelOptionsFlow(OptionsFlow):
+    """Optionen: Weboberfläche der Wallbox und Kartennamen."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        opts = self.config_entry.options
+        if user_input is not None:
+            user_input[CONF_WEB_INTERVAL] = int(user_input[CONF_WEB_INTERVAL])
+            if not user_input.get(CONF_WEB_PASSWORD):
+                # leeres Feld = bisheriges Passwort behalten
+                user_input[CONF_WEB_PASSWORD] = opts.get(CONF_WEB_PASSWORD, "")
+            if user_input[CONF_WEB_PASSWORD] and user_input[CONF_WEB_INTERVAL] > 0:
+                session = aiohttp.ClientSession(
+                    cookie_jar=aiohttp.CookieJar(unsafe=True)
+                )
+                client = VestelWebClient(
+                    session,
+                    user_input[CONF_WEB_HOST].strip(),
+                    user_input[CONF_WEB_USER].strip(),
+                    user_input[CONF_WEB_PASSWORD],
+                )
+                try:
+                    await client.login()
+                except VestelWebAuthError:
+                    errors["base"] = "web_auth"
+                except VestelWebError:
+                    errors["base"] = "web_connect"
+                finally:
+                    await session.close()
+            if not errors:
+                return self.async_create_entry(data=user_input)
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_WEB_HOST, default=opts.get(CONF_WEB_HOST, DEFAULT_HOST)
+                ): str,
+                vol.Required(
+                    CONF_WEB_USER, default=opts.get(CONF_WEB_USER, DEFAULT_WEB_USER)
+                ): str,
+                vol.Optional(CONF_WEB_PASSWORD, default=""): TextSelector(
+                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                ),
+                vol.Required(
+                    CONF_WEB_INTERVAL,
+                    default=opts.get(CONF_WEB_INTERVAL, DEFAULT_WEB_INTERVAL),
+                ): _box(0, 60),
+                vol.Optional(
+                    CONF_CARD_NAMES, default=opts.get(CONF_CARD_NAMES, "")
+                ): TextSelector(TextSelectorConfig(multiline=True)),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

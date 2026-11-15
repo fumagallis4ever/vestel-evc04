@@ -38,12 +38,25 @@ In der Integration dann als Host die IP des evcc-Hosts und Port `5021` eintragen
 - **Modbus-Kommunikation** (Diagnose) – Abfragedauer, Anzahl Abfragen/Fehler, letzter Fehler
 - Button **Protokoll leeren**
 
+## RFID über die Weboberfläche (optional)
+
+Per Modbus gibt die Wallbox die Karten-ID nur während eines Ladevorgangs heraus (Register 1516). Jede Kartennutzung – auch ohne angestecktes Fahrzeug, inkl. „abgelehnt“ – steht aber in den Geräte-Logs der Weboberfläche. Die Integration kann diese abrufen:
+
+Einstellungen → Geräte & Dienste → Vestel EVC04 Wallbox → **Konfigurieren**
+
+- IP-Adresse der Wallbox (nicht die des evcc-Proxys)
+- Benutzername/Passwort der Weboberfläche
+- Abrufintervall in Minuten (Standard 5, 0 = aus). Die Box packt die Logs bei jedem Abruf neu, daher nicht zu kurz wählen.
+- Kartennamen, z. B. `FCF70F46=Michael, DCA1461E=Bea`
+
+Zusätzlich gibt es dann den Sensor **Letzter Ladevorgang** (kWh, Karte, Start/Ende; Liste der letzten 20 im Attribut `ladevorgaenge`) und den Button **Wallbox-Logs abrufen**.
+
 ### Was protokolliert wird
 
 | Typ | Ereignis |
 |---|---|
-| `rfid` | Karte erkannt (UID + Rohdaten), Register geleert |
-| `ladevorgang` | Start (mit RFID), Ende (mit Energie und Dauer) |
+| `rfid` | Kartennutzung mit Ergebnis (angenommen, abgelehnt, Freigabe abgelaufen) über die Weboberfläche; Karte im Ladevorgang über Modbus |
+| `ladevorgang` | Start (mit RFID), Ende (mit Energie und Dauer), abgeschlossene Ladevorgänge aus der Weboberfläche |
 | `status` | Wechsel von Ladepunkt-, Kabel-, Gerätestatus, Ladestromvorgabe |
 | `fehler` | Änderung des Fehlercodes |
 | `verbindung` | Verbindung hergestellt, verloren, wiederhergestellt |
@@ -64,4 +77,4 @@ content: >-
   {% endfor %}
 ```
 
-Die Integration schreibt keine Register.
+Die Integration schreibt keine Register und ändert keine Einstellungen der Wallbox.

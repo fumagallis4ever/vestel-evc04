@@ -184,6 +184,14 @@ LOG_SENSOR = SensorEntityDescription(
     name="Ereignisprotokoll",
     icon="mdi:text-box-outline",
 )
+SESSIONS_SENSOR = SensorEntityDescription(
+    key="last_session",
+    name="Letzter Ladevorgang",
+    icon="mdi:history",
+    native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+    device_class=SensorDeviceClass.ENERGY,
+    suggested_display_precision=2,
+)
 COMM_SENSOR = SensorEntityDescription(
     key="modbus",
     name="Modbus-Kommunikation",
@@ -206,6 +214,11 @@ async def async_setup_entry(
             VestelRfidSensor(coordinator, RFID_SENSOR),
             VestelLogSensor(coordinator, LOG_SENSOR),
             VestelCommSensor(coordinator, COMM_SENSOR),
+            *(
+                [VestelSessionsSensor(coordinator, SESSIONS_SENSOR)]
+                if coordinator.weblog
+                else []
+            ),
         ]
     )
 
@@ -226,7 +239,7 @@ class VestelSensor(VestelEntity, SensorEntity):
 
 
 class VestelRfidSensor(VestelEntity, SensorEntity):
-    """Zuletzt von der Wallbox übertragene RFID-Karte."""
+    """Zuletzt genutzte RFID-Karte (Weboberfläche oder Modbus)."""
 
     @property
     def available(self) -> bool:
@@ -235,17 +248,46 @@ class VestelRfidSensor(VestelEntity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         last = self.coordinator.rfid_last
-        return last["uid"] if last else None
+        return self.coordinator.card_label(last["uid"]) if last else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         last = self.coordinator.rfid_last or {}
         return {
+            "uid": last.get("uid"),
+            "name": last.get("name"),
+            "ergebnis": last.get("ergebnis"),
+            "quelle": last.get("quelle"),
             "erkannt_um": last.get("erkannt_um"),
             "rohdaten_hex_bei_erkennung": last.get("rohdaten_hex"),
             "rohdaten_hex_aktuell": self.coordinator.rfid_raw_hex,
             "register": REG_RFID,
             "unterstuetzt": self.coordinator.rfid_supported,
+        }
+
+
+class VestelSessionsSensor(VestelEntity, SensorEntity):
+    """Ladevorgänge laut Weboberfläche."""
+
+    _unrecorded_attributes = frozenset({"ladevorgaenge"})
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def native_value(self) -> float | None:
+        s = self.coordinator.sessions
+        return s[0]["energie_kwh"] if s else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        s = self.coordinator.sessions
+        return {
+            "karte": self.coordinator.card_label(s[0]["karte"]) if s else None,
+            "start": s[0]["start"] if s else None,
+            "ende": s[0]["ende"] if s else None,
+            "ladevorgaenge": s[:20],
         }
 
 
@@ -290,4 +332,5 @@ class VestelCommSensor(VestelEntity, SensorEntity):
         return {
             **self.coordinator.comm,
             "verbunden": self.coordinator.last_update_success,
+            "weboberflaeche": self.coordinator.web_status,
         }
