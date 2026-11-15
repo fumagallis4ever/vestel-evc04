@@ -26,6 +26,7 @@ from .const import (
     CHARGEPOINT_STATE,
     EQUIPMENT_STATE,
     LOG_ATTR_ENTRIES,
+    REG_NAMES,
     REG_RFID,
 )
 from .coordinator import VestelConfigEntry, VestelEntity
@@ -192,6 +193,14 @@ SESSIONS_SENSOR = SensorEntityDescription(
     device_class=SensorDeviceClass.ENERGY,
     suggested_display_precision=2,
 )
+REGISTER_SENSOR = SensorEntityDescription(
+    key="registers",
+    name="Modbus-Register",
+    icon="mdi:table-eye",
+    native_unit_of_measurement="Änderungen",
+    state_class=MEAS,
+    entity_category=DIAG,
+)
 COMM_SENSOR = SensorEntityDescription(
     key="modbus",
     name="Modbus-Kommunikation",
@@ -214,6 +223,7 @@ async def async_setup_entry(
             VestelRfidSensor(coordinator, RFID_SENSOR),
             VestelLogSensor(coordinator, LOG_SENSOR),
             VestelCommSensor(coordinator, COMM_SENSOR),
+            VestelRegisterSensor(coordinator, REGISTER_SENSOR),
             *(
                 [VestelSessionsSensor(coordinator, SESSIONS_SENSOR)]
                 if coordinator.weblog
@@ -333,4 +343,32 @@ class VestelCommSensor(VestelEntity, SensorEntity):
             **self.coordinator.comm,
             "verbunden": self.coordinator.last_update_success,
             "weboberflaeche": self.coordinator.web_status,
+        }
+
+
+class VestelRegisterSensor(VestelEntity, SensorEntity):
+    """Rohwerte aller gelesenen Register und deren Änderungen (live)."""
+
+    _unrecorded_attributes = frozenset({"register", "aenderungen"})
+
+    @property
+    def native_value(self) -> int:
+        return self.coordinator.reg_changes_last_poll
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        regs = [
+            {
+                "art": key.split()[0],
+                "register": int(key.split()[1]),
+                "name": REG_NAMES.get(int(key.split()[1]), "–"),
+                "wert": value,
+                "hex": None if value is None else f"{value:04X}",
+            }
+            for key, value in self.coordinator.registers.items()
+        ]
+        return {
+            "letzte_abfrage": self.coordinator.comm.get("letzte_abfrage"),
+            "register": regs,
+            "aenderungen": list(self.coordinator.reg_log)[:100],
         }

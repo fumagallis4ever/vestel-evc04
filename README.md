@@ -35,6 +35,7 @@ In der Integration dann als Host die IP des evcc-Hosts und Port `5021` eintragen
 - Binärsensoren „Ladevorgang aktiv“ und „Fahrzeug verbunden“
 - **Letzte RFID-Karte** – UID aus Input-Register 1516 (15 Register, UTF-16), Attribute mit Rohdaten (Hex) und Zeitpunkt. Benötigt Wallbox-Firmware ≥ 3.156
 - **Ereignisprotokoll** – letzte 50 Einträge im Attribut `eintraege` (gespeichert werden 200, auch über Neustarts)
+- **Modbus-Register** (Diagnose) – Rohwerte aller gelesenen Register (Attribut `register`) und die letzten 100 Änderungen mit Zeit, alt/neu (Attribut `aenderungen`); Zustand = Anzahl Änderungen bei der letzten Abfrage
 - **Modbus-Kommunikation** (Diagnose) – Abfragedauer, Anzahl Abfragen/Fehler, letzter Fehler
 - Button **Protokoll leeren**
 

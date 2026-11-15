@@ -33,6 +33,8 @@ from .const import (
     LOG_MAX_ENTRIES,
     WEB_SEEN_MAX,
     REG_RFID,
+    REG_LOG_MAX,
+    REG_NAMES,
     REG_RFID_COUNT,
     STORAGE_VERSION,
 )
@@ -113,6 +115,10 @@ class VestelCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.web_status: dict[str, Any] = {"aktiv": False}
         self.sessions: list[dict[str, Any]] = []
         self.weblog: Any = None
+        # Rohwerte aller gelesenen Register und Änderungsprotokoll
+        self.registers: dict[str, int | None] = {}
+        self.reg_log: deque[dict[str, Any]] = deque(maxlen=REG_LOG_MAX)
+        self.reg_changes_last_poll = 0
         self.card_names = parse_card_names(entry.options.get(CONF_CARD_NAMES, ""))
         self._store: Store[Any] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.protokoll"
@@ -320,6 +326,34 @@ class VestelCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.add_log("rfid", "RFID-Register geleert", {"rohdaten_hex": raw_hex})
         return self.rfid_last["uid"] if self.rfid_last else None
 
+    def _track_registers(
+        self, blocks: list[tuple[str, int, list[int | None]]]
+    ) -> None:
+        """Rohwerte merken und jede Änderung protokollieren."""
+        now = dt_util.now().isoformat(timespec="seconds")
+        first = not self.registers
+        changes = 0
+        for fc, start, values in blocks:
+            for offset, value in enumerate(values):
+                reg = start + offset
+                key = f"{fc} {reg}"
+                old = self.registers.get(key)
+                self.registers[key] = value
+                if first or old == value:
+                    continue
+                changes += 1
+                self.reg_log.appendleft(
+                    {
+                        "zeit": now,
+                        "art": fc,
+                        "register": reg,
+                        "name": REG_NAMES.get(reg, "–"),
+                        "alt": old,
+                        "neu": value,
+                    }
+                )
+        self.reg_changes_last_poll = changes
+
     async def _async_update_data(self) -> dict[str, Any]:
         started = time.monotonic()
         self.comm["abfragen"] += 1
@@ -342,6 +376,16 @@ class VestelCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                              {"fehler": str(err)})
             raise UpdateFailed(f"Vestel Wallbox nicht erreichbar: {err}") from err
 
+        self._track_registers(
+            [
+                ("IR", 1000, main),
+                ("IR", 1100, limits),
+                ("IR", 1502, session),
+                ("HR", 2000, failsafe),
+                ("HR", 5004, setpoint),
+                ("IR", REG_RFID, rfid_regs or []),
+            ]
+        )
         self.comm["dauer_ms"] = round((time.monotonic() - started) * 1000)
         self.comm["letzte_abfrage"] = dt_util.now().isoformat(timespec="seconds")
         if self._online is not True:

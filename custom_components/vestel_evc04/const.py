@@ -67,3 +67,44 @@ RFID_RESULT = {
     "ConcurrentTx": "abgelehnt (bereits in Verwendung)",
     "Timeout": "Freigabe abgelaufen (kein Fahrzeug angesteckt)",
 }
+
+# Bezeichnungen der gelesenen Register (IR = Input, HR = Holding)
+REG_NAMES: dict[int, str] = {
+    1000: "Ladepunktstatus",
+    1001: "Ladestatus",
+    1002: "Gerätestatus",
+    1004: "Kabelstatus",
+    1006: "Fehlercode (hi)",
+    1007: "Fehlercode (lo)",
+    1008: "Strom L1 (mA)",
+    1010: "Strom L2 (mA)",
+    1012: "Strom L3 (mA)",
+    1014: "Spannung L1 (V)",
+    1016: "Spannung L2 (V)",
+    1018: "Spannung L3 (V)",
+    1020: "Leistung gesamt (hi)",
+    1021: "Leistung gesamt (lo, W)",
+    1024: "Leistung L1 (hi)",
+    1025: "Leistung L1 (lo, W)",
+    1028: "Leistung L2 (hi)",
+    1029: "Leistung L2 (lo, W)",
+    1032: "Leistung L3 (hi)",
+    1033: "Leistung L3 (lo, W)",
+    1036: "Zählerstand (hi)",
+    1037: "Zählerstand (lo, 0,1 kWh)",
+    1100: "Max. Ladestrom Wallbox (A)",
+    1102: "Min. Ladestrom Wallbox (A)",
+    1104: "Max. Ladestrom Kabel (A)",
+    1502: "Energie Ladevorgang (hi)",
+    1503: "Energie Ladevorgang (lo, Wh)",
+    1504: "Startzeit Ladevorgang (hi)",
+    1505: "Startzeit Ladevorgang (lo)",
+    1508: "Dauer Ladevorgang (hi)",
+    1509: "Dauer Ladevorgang (lo, s)",
+    2000: "Failsafe-Strom (A)",
+    2002: "Failsafe-Timeout (s)",
+    5004: "Ladestromvorgabe (A)",
+}
+for _i in range(15):
+    REG_NAMES[1516 + _i] = f"RFID Zeichen {_i + 1}"
+REG_LOG_MAX = 200
