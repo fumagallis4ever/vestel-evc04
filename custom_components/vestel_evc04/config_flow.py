@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import aiohttp
@@ -41,6 +42,8 @@ from .const import (
 )
 from .modbus import VestelError, VestelModbusClient
 from .web import VestelWebAuthError, VestelWebClient, VestelWebError
+
+_LOGGER = logging.getLogger(__name__)
 
 def _box(minimum: int, maximum: int) -> NumberSelector:
     """Zahlenfeld statt Schieberegler."""
@@ -137,9 +140,11 @@ class VestelOptionsFlow(OptionsFlow):
                 )
                 try:
                     await client.login()
-                except VestelWebAuthError:
+                except VestelWebAuthError as err:
+                    _LOGGER.warning("Weboberfläche: %s", err)
                     errors["base"] = "web_auth"
-                except VestelWebError:
+                except VestelWebError as err:
+                    _LOGGER.warning("Weboberfläche: %s", err)
                     errors["base"] = "web_connect"
                 finally:
                     await session.close()

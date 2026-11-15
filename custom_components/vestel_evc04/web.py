@@ -117,28 +117,65 @@ class VestelWebClient:
         self._logged_in = False
         self._lock = asyncio.Lock()
 
+    def _headers(self, referer: str = "/") -> dict[str, str]:
+        return {
+            "User-Agent": "Mozilla/5.0 (HomeAssistant vestel_evc04)",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Origin": self._base,
+            "Referer": f"{self._base}{referer}",
+        }
+
     async def login(self) -> None:
+        """Wie der Browser: GET /, POST / (Formular), GET / -> 302 index_main.php."""
+        steps: list[str] = []
         try:
-            async with self._session.get(f"{self._base}/", timeout=TIMEOUT) as r:
+            async with self._session.get(
+                f"{self._base}/", headers=self._headers(), timeout=TIMEOUT
+            ) as r:
                 await r.read()
+                steps.append(f"GET / {r.status}")
             form = {
                 "username": self._username,
                 "pass": self._password,
-                "button_login": "Login",
+                "button_login": "ANMELDEN",
             }
             async with self._session.post(
-                f"{self._base}/", data=form, allow_redirects=False, timeout=TIMEOUT
+                f"{self._base}/",
+                data=form,
+                headers=self._headers(),
+                allow_redirects=False,
+                timeout=TIMEOUT,
             ) as r:
                 await r.read()
+                steps.append(f"POST / {r.status} -> {r.headers.get('Location')}")
             async with self._session.get(
-                f"{self._base}/index_main.php", timeout=TIMEOUT
+                f"{self._base}/",
+                headers=self._headers(),
+                allow_redirects=False,
+                timeout=TIMEOUT,
             ) as r:
-                html = await r.text(errors="replace")
+                body = await r.text(errors="replace")
+                location = r.headers.get("Location", "")
+                steps.append(f"GET / {r.status} -> {location}")
+            ok = "index_main" in location
+            if not ok:
+                async with self._session.get(
+                    f"{self._base}/index_main.php",
+                    headers=self._headers(),
+                    allow_redirects=False,
+                    timeout=TIMEOUT,
+                ) as r:
+                    body = await r.text(errors="replace")
+                    steps.append(f"GET index_main.php {r.status}")
+                    ok = r.status == 200 and not _is_login_page(body)
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
-            raise VestelWebError(f"Weboberfläche nicht erreichbar: {err}") from err
-        if _is_login_page(html) or "index_main" not in str(r.url):
+            raise VestelWebError(f"Weboberfläche nicht erreichbar: {err!r}") from err
+        _LOGGER.debug("Login %s: %s", "ok" if ok else "fehlgeschlagen", "; ".join(steps))
+        if not ok:
             self._logged_in = False
-            raise VestelWebAuthError("Anmeldung an der Weboberfläche fehlgeschlagen")
+            raise VestelWebAuthError(
+                "Anmeldung fehlgeschlagen (" + "; ".join(steps) + ")"
+            )
         self._logged_in = True
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> bytes:
@@ -148,7 +185,10 @@ class VestelWebClient:
                     await self.login()
                 try:
                     async with self._session.get(
-                        f"{self._base}/{path}", params=params, timeout=TIMEOUT
+                        f"{self._base}/{path}",
+                        params=params,
+                        headers=self._headers("/index_main.php"),
+                        timeout=TIMEOUT,
                     ) as r:
                         body = await r.read()
                         ctype = r.headers.get("Content-Type", "")
