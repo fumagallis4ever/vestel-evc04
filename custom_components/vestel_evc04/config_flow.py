@@ -8,6 +8,11 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_SCAN_INTERVAL
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+)
 
 from .const import (
     CONF_UNIT_ID,
@@ -19,20 +24,27 @@ from .const import (
 )
 from .modbus import VestelError, VestelModbusClient
 
+def _box(minimum: int, maximum: int) -> NumberSelector:
+    """Zahlenfeld statt Schieberegler."""
+    return NumberSelector(
+        NumberSelectorConfig(
+            min=minimum, max=maximum, step=1, mode=NumberSelectorMode.BOX
+        )
+    )
+
+
 SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST, default=DEFAULT_HOST): str,
-        vol.Required(CONF_PORT, default=DEFAULT_PORT): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=65535)
-        ),
-        vol.Required(CONF_UNIT_ID, default=DEFAULT_UNIT_ID): vol.All(
-            vol.Coerce(int), vol.Range(min=0, max=255)
-        ),
-        vol.Required(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.All(
-            vol.Coerce(int), vol.Range(min=5, max=300)
+        vol.Required(CONF_PORT, default=DEFAULT_PORT): _box(1, 65535),
+        vol.Required(CONF_UNIT_ID, default=DEFAULT_UNIT_ID): _box(0, 255),
+        vol.Required(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): _box(
+            5, 300
         ),
     }
 )
+
+INT_KEYS = (CONF_PORT, CONF_UNIT_ID, CONF_SCAN_INTERVAL)
 
 
 class VestelConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -45,6 +57,10 @@ class VestelConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
+            user_input = {
+                **user_input,
+                **{k: int(user_input[k]) for k in INT_KEYS},
+            }
             host = user_input[CONF_HOST].strip()
             port = user_input[CONF_PORT]
             await self.async_set_unique_id(f"{host}:{port}")
