@@ -38,3 +38,13 @@ CABLE_STATE = {
     2: "Fahrzeug verbunden",
     3: "Fahrzeug verbunden, Kabel verriegelt",
 }
+
+# RFID (ab Firmware 3.156): Input-Register 1516, 15 Register, UTF-16BE
+REG_RFID = 1516
+REG_RFID_COUNT = 15
+
+# Ereignisprotokoll
+EVENT_NAME = f"{DOMAIN}_ereignis"
+LOG_MAX_ENTRIES = 200
+LOG_ATTR_ENTRIES = 50
+STORAGE_VERSION = 1

@@ -21,7 +21,13 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import CABLE_STATE, CHARGEPOINT_STATE, EQUIPMENT_STATE
+from .const import (
+    CABLE_STATE,
+    CHARGEPOINT_STATE,
+    EQUIPMENT_STATE,
+    LOG_ATTR_ENTRIES,
+    REG_RFID,
+)
 from .coordinator import VestelConfigEntry, VestelEntity
 
 ENUM_KEYS = {"chargepoint_state", "equipment_state", "cable_state"}
@@ -168,13 +174,40 @@ SENSORS: tuple[SensorEntityDescription, ...] = (
 )
 
 
+RFID_SENSOR = SensorEntityDescription(
+    key="rfid",
+    name="Letzte RFID-Karte",
+    icon="mdi:card-account-details",
+)
+LOG_SENSOR = SensorEntityDescription(
+    key="log",
+    name="Ereignisprotokoll",
+    icon="mdi:text-box-outline",
+)
+COMM_SENSOR = SensorEntityDescription(
+    key="modbus",
+    name="Modbus-Kommunikation",
+    icon="mdi:lan-connect",
+    native_unit_of_measurement="ms",
+    state_class=MEAS,
+    entity_category=DIAG,
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: VestelConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    async_add_entities(VestelSensor(coordinator, d) for d in SENSORS)
+    async_add_entities(
+        [
+            *(VestelSensor(coordinator, d) for d in SENSORS),
+            VestelRfidSensor(coordinator, RFID_SENSOR),
+            VestelLogSensor(coordinator, LOG_SENSOR),
+            VestelCommSensor(coordinator, COMM_SENSOR),
+        ]
+    )
 
 
 class VestelSensor(VestelEntity, SensorEntity):
@@ -190,3 +223,71 @@ class VestelSensor(VestelEntity, SensorEntity):
         if key in ENUM_KEYS:
             return {"rohwert": self.coordinator.data.get(f"{key}_raw")}
         return None
+
+
+class VestelRfidSensor(VestelEntity, SensorEntity):
+    """Zuletzt von der Wallbox übertragene RFID-Karte."""
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.rfid_last is not None or super().available
+
+    @property
+    def native_value(self) -> str | None:
+        last = self.coordinator.rfid_last
+        return last["uid"] if last else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        last = self.coordinator.rfid_last or {}
+        return {
+            "erkannt_um": last.get("erkannt_um"),
+            "rohdaten_hex_bei_erkennung": last.get("rohdaten_hex"),
+            "rohdaten_hex_aktuell": self.coordinator.rfid_raw_hex,
+            "register": REG_RFID,
+            "unterstuetzt": self.coordinator.rfid_supported,
+        }
+
+
+class VestelLogSensor(VestelEntity, SensorEntity):
+    """Ereignisprotokoll: Status, Ladevorgänge, RFID, Verbindung."""
+
+    _unrecorded_attributes = frozenset({"eintraege"})
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def native_value(self) -> str | None:
+        if not self.coordinator.log:
+            return None
+        return self.coordinator.log[0]["text"][:255]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        entries = list(self.coordinator.log)[:LOG_ATTR_ENTRIES]
+        return {
+            "anzahl": len(self.coordinator.log),
+            "letzte_zeit": entries[0]["zeit"] if entries else None,
+            "eintraege": entries,
+        }
+
+
+class VestelCommSensor(VestelEntity, SensorEntity):
+    """Dauer der letzten Modbus-Abfrage plus Statistik."""
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def native_value(self) -> int | None:
+        return self.coordinator.comm["dauer_ms"] if self.coordinator.last_update_success else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            **self.coordinator.comm,
+            "verbunden": self.coordinator.last_update_success,
+        }
